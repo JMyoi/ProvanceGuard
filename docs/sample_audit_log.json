@@ -1,0 +1,56 @@
+{
+    "entries": [
+        {
+            "appeal_reasoning": "I wrote this myself; I am a non-native English speaker and write formally.",
+            "attribution": "likely_ai",
+            "confidence": 0.813,
+            "content_id": "9d46edfa-46f3-4ca2-bbd1-fc21808566b0",
+            "creator_id": "alice",
+            "event_type": "appeal",
+            "id": 4,
+            "llm_score": 0.9,
+            "status": "under_review",
+            "stylometric_score": 0.6508356691894623,
+            "timestamp": "2026-07-01T02:52:11.710Z"
+        },
+        {
+            "appeal_reasoning": null,
+            "attribution": "uncertain",
+            "confidence": 0.707,
+            "content_id": "4cce70b4-a7c6-48f2-a8c4-63c56faa7e1f",
+            "creator_id": "carol",
+            "event_type": "classification",
+            "id": 3,
+            "llm_score": 0.8,
+            "status": "classified",
+            "stylometric_score": 0.5354651162790698,
+            "timestamp": "2026-07-01T02:52:11.675Z"
+        },
+        {
+            "appeal_reasoning": null,
+            "attribution": "likely_human",
+            "confidence": 0.122,
+            "content_id": "bb2e53cb-7d84-49a4-985a-5884de95ff4e",
+            "creator_id": "bob",
+            "event_type": "classification",
+            "id": 2,
+            "llm_score": 0.1,
+            "status": "classified",
+            "stylometric_score": 0.16212289189214057,
+            "timestamp": "2026-07-01T02:52:11.233Z"
+        },
+        {
+            "appeal_reasoning": null,
+            "attribution": "likely_ai",
+            "confidence": 0.813,
+            "content_id": "9d46edfa-46f3-4ca2-bbd1-fc21808566b0",
+            "creator_id": "alice",
+            "event_type": "classification",
+            "id": 1,
+            "llm_score": 0.9,
+            "status": "under_review",
+            "stylometric_score": 0.6508356691894623,
+            "timestamp": "2026-07-01T02:52:10.815Z"
+        }
+    ]
+}

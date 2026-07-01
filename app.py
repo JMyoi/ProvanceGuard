@@ -34,6 +34,20 @@ limiter = Limiter(
 )
 
 
+@app.errorhandler(429)
+def ratelimit_exceeded(e):
+    """Return rate-limit rejections as JSON (this is a JSON API)."""
+    return (
+        jsonify(
+            {
+                "error": "Rate limit exceeded. Please slow down and try again later.",
+                "limit": str(e.description),
+            }
+        ),
+        429,
+    )
+
+
 @app.get("/health")
 def health():
     return jsonify({"status": "ok"})
