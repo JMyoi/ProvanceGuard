@@ -1,22 +1,37 @@
 """Provenance Guard — Flask API.
 
-Milestone 4 scope: POST /submit runs both signals (Groq LLM + stylometry),
-combines them into a calibrated confidence score, writes a structured audit-log
-row (both signal scores + combined), and returns the verdict. The transparency
-label is still a PLACEHOLDER here; label variants arrive in M5.
+Full system (Milestone 5). POST /submit runs both signals (Groq LLM +
+stylometry), combines them into a calibrated confidence score, generates a
+reader-facing transparency label, writes a structured audit-log row, and returns
+the verdict. POST /appeal lets a creator contest a decision (status ->
+under_review, logged beside the original). Rate limiting protects /submit;
+GET /log surfaces the audit trail.
 """
 
 import uuid
 
 from flask import Flask, jsonify, request
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 import audit
+from labels import generate_label
 from llm_signal import classify_llm
 from scoring import combine_scores
 from stylometric_signal import analyze_stylometry
 
 app = Flask(__name__)
 audit.init_db()
+
+# Rate limiting (see README for chosen limits + reasoning). In-memory storage is
+# fine for local/dev; a real deployment would use Redis so limits survive restarts
+# and span multiple workers.
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=[],
+    storage_uri="memory://",
+)
 
 
 @app.get("/health")
@@ -25,6 +40,7 @@ def health():
 
 
 @app.post("/submit")
+@limiter.limit("10 per minute;100 per day")
 def submit():
     data = request.get_json(silent=True) or {}
     text = (data.get("text") or "").strip()
@@ -52,8 +68,7 @@ def submit():
     attribution = verdict["attribution"]
     content_id = str(uuid.uuid4())
 
-    # Label still a placeholder until M5.
-    transparency_label = "(placeholder label — implemented in Milestone 5)"
+    transparency_label = generate_label(attribution, confidence)
 
     audit.log_classification(
         content_id=content_id,
@@ -77,6 +92,40 @@ def submit():
             },
             "scoring_notes": verdict["reasons"],
             "transparency_label": transparency_label,
+        }
+    )
+
+
+@app.post("/appeal")
+def appeal():
+    data = request.get_json(silent=True) or {}
+    content_id = (data.get("content_id") or "").strip()
+    creator_reasoning = (data.get("creator_reasoning") or "").strip()
+
+    if not content_id:
+        return jsonify({"error": "Field 'content_id' is required."}), 400
+    if not creator_reasoning:
+        return jsonify({"error": "Field 'creator_reasoning' is required."}), 400
+
+    original = audit.get_latest_classification(content_id)
+    if original is None:
+        return jsonify({"error": f"No classification found for content_id {content_id!r}."}), 404
+
+    audit.log_appeal(
+        content_id=content_id,
+        creator_id=original.get("creator_id"),
+        creator_reasoning=creator_reasoning,
+        original=original,
+    )
+
+    return jsonify(
+        {
+            "content_id": content_id,
+            "status": "under_review",
+            "message": (
+                "Your appeal has been received and the content is now under review. "
+                "The original classification has been preserved for a human reviewer."
+            ),
         }
     )
 
