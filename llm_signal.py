@@ -10,6 +10,7 @@ Output contract (planning.md ss.1):
 
 import json
 import os
+import re
 
 from dotenv import load_dotenv
 from groq import Groq
@@ -37,8 +38,9 @@ _SYSTEM_PROMPT = (
     "language model. Consider holistic, semantic cues: does the writing take a "
     "genuine stance and have an idiosyncratic personal voice (human), or is it "
     "balanced, hedged, uniformly polished, and formulaic (AI)? "
-    "Reply ONLY with a JSON object of the form "
-    '{"ai_probability": <number 0.0-1.0>, "rationale": "<one sentence>"}. '
+    "Reply ONLY with a single-line JSON object (no markdown, no newlines inside "
+    'it) of the form {"ai_probability": <number 0.0-1.0>, "rationale": "<one '
+    'short sentence, under 25 words, no line breaks>"}. '
     "ai_probability is your estimated probability the text is AI-generated: "
     "0.0 = clearly human, 1.0 = clearly AI. Be calibrated and cautious — on a "
     "writing platform, wrongly accusing a human is the costlier error, so only "
@@ -50,35 +52,61 @@ def _clamp01(x):
     return max(0.0, min(1.0, float(x)))
 
 
+def _parse_verdict(raw):
+    """Extract {'score','rationale'} from a model reply, tolerating minor
+    malformation (stray braces, code fences). Returns None if unparseable.
+    """
+    if not raw:
+        return None
+    # Try strict JSON, then the first {...} block, then a bare probability number.
+    candidates = [raw]
+    block = re.search(r"\{.*?\}", raw, re.DOTALL)
+    if block:
+        candidates.append(block.group(0))
+    for cand in candidates:
+        try:
+            data = json.loads(cand)
+            if isinstance(data, dict) and "ai_probability" in data:
+                return {
+                    "score": _clamp01(data["ai_probability"]),
+                    "rationale": str(data.get("rationale", "")).strip(),
+                }
+        except (ValueError, TypeError):
+            continue
+    # Last resort: pull the number out of "ai_probability": 0.9
+    m = re.search(r"ai_probability\D*([01](?:\.\d+)?)", raw)
+    if m:
+        return {"score": _clamp01(m.group(1)), "rationale": raw.strip()[:200]}
+    return None
+
+
 def classify_llm(text):
     """Return {'score': float, 'rationale': str} for the given text.
 
-    Raises RuntimeError on API/parse failure so callers can decide how to
-    degrade (the /submit route surfaces this as a 502).
+    Retries once on transient/parse failure, then raises RuntimeError so callers
+    can decide how to degrade (the /submit route surfaces this as a 502).
     """
     client = _get_client()
-    try:
-        resp = client.chat.completions.create(
-            model=GROQ_MODEL,
-            temperature=LLM_TEMPERATURE,
-            response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user", "content": text},
-            ],
-        )
-        raw = resp.choices[0].message.content
-        data = json.loads(raw)
-    except Exception as e:  # network, auth, malformed JSON, etc.
-        raise RuntimeError(f"Groq LLM signal failed: {e}") from e
-
-    if "ai_probability" not in data:
-        raise RuntimeError(f"Groq response missing 'ai_probability': {raw!r}")
-
-    return {
-        "score": _clamp01(data["ai_probability"]),
-        "rationale": str(data.get("rationale", "")).strip(),
-    }
+    last_err = None
+    for _ in range(2):
+        try:
+            resp = client.chat.completions.create(
+                model=GROQ_MODEL,
+                temperature=LLM_TEMPERATURE,
+                max_tokens=200,
+                messages=[
+                    {"role": "system", "content": _SYSTEM_PROMPT},
+                    {"role": "user", "content": text},
+                ],
+            )
+            raw = resp.choices[0].message.content
+            parsed = _parse_verdict(raw)
+            if parsed is not None:
+                return parsed
+            last_err = f"could not parse verdict from response: {raw!r}"
+        except Exception as e:  # network, auth, etc.
+            last_err = str(e)
+    raise RuntimeError(f"Groq LLM signal failed: {last_err}")
 
 
 if __name__ == "__main__":
